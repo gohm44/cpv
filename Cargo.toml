@@ -1,0 +1,18 @@
+[package]
+name = "cpv"
+version = "0.1.0"
+edition = "2021"
+description = "A modern file copy utility with progress visualization"
+authors = ["Your Name <your.email@example.com>"]
+license = "MIT"
+repository = "https://github.com/yourusername/cpv"
+keywords = ["cli", "copy", "file", "utility", "progress"]
+categories = ["command-line-utilities"]
+
+[dependencies]
+clap = { version = "4.4", features = ["derive"] }
+indicatif = "0.17.0"
+walkdir = "2.3.3"
+anyhow = "1.0"
+thiserror = "1.0"
+humansize = "2.1"
