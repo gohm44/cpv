@@ -174,3 +174,117 @@ pub fn copy_with_progress(
 
     Ok(stats)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
+
+    fn create_test_file(dir: &TempDir, name: &str, content: &[u8]) -> PathBuf {
+        let file_path = dir.path().join(name);
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(content).unwrap();
+        file_path
+    }
+
+    fn create_test_dir(dir: &TempDir, name: &str) -> PathBuf {
+        let dir_path = dir.path().join(name);
+        fs::create_dir(&dir_path).unwrap();
+        dir_path
+    }
+
+    #[test]
+    fn test_single_file_copy() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_file(&temp, "source.txt", b"test content");
+        let dest = temp.path().join("dest.txt");
+
+        let options = CopyOptions {
+            preserve_attrs: false,
+            force: false,
+            verbose: false,
+            recursive: false,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(result.is_ok());
+
+        let stats = result.unwrap();
+        assert_eq!(stats.files_copied, 1);
+        assert_eq!(stats.bytes_copied, 12); // length of "test content"
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "test content");
+    }
+
+    #[test]
+    fn test_directory_without_recursive() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_dir(&temp, "source_dir");
+        let dest = temp.path().join("dest_dir");
+
+        let options = CopyOptions {
+            preserve_attrs: false,
+            force: false,
+            verbose: false,
+            recursive: false,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(matches!(result, Err(CopyError::IsADirectory(_))));
+    }
+
+    #[test]
+    fn test_directory_recursive() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_dir(&temp, "source_dir");
+        create_test_file(&temp, "source_dir/file1.txt", b"content1");
+        create_test_file(&temp, "source_dir/file2.txt", b"content2");
+        let dest = temp.path().join("dest_dir");
+
+        let options = CopyOptions {
+            preserve_attrs: false,
+            force: false,
+            verbose: false,
+            recursive: true,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(result.is_ok());
+
+        let stats = result.unwrap();
+        assert_eq!(stats.files_copied, 2);
+        assert_eq!(stats.bytes_copied, 16); // total length of contents
+        assert!(dest.exists());
+        assert!(dest.join("file1.txt").exists());
+        assert!(dest.join("file2.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_preserve_attrs() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_file(&temp, "source.txt", b"test");
+        let dest = temp.path().join("dest.txt");
+
+        // Set some permissions on source (Unix-specific)
+        let source_perms = fs::Permissions::from_mode(0o644);
+        fs::set_permissions(&source, source_perms).unwrap();
+
+        let options = CopyOptions {
+            preserve_attrs: true,
+            force: false,
+            verbose: false,
+            recursive: false,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(result.is_ok());
+
+        let source_metadata = fs::metadata(&source).unwrap();
+        let dest_metadata = fs::metadata(&dest).unwrap();
+        assert_eq!(source_metadata.permissions(), dest_metadata.permissions());
+    }
+}
