@@ -1,7 +1,7 @@
 use clap::Parser;
+use cpv::{copy_with_progress, CopyError, CopyOptions};
 use std::path::PathBuf;
 use std::process;
-use cpv::{copy_with_progress, CopyOptions, CopyError};
 
 /// Modern file copy utility with progress visualization
 #[derive(Parser, Debug)]
@@ -34,7 +34,7 @@ struct Args {
 
 fn main() {
     let args = Args::parse();
-    
+
     let options = CopyOptions {
         preserve_attrs: args.preserve,
         force: args.force,
@@ -47,19 +47,22 @@ fn main() {
             if options.verbose {
                 println!("{}", stats.format_summary());
             }
-        },
+        }
         Err(CopyError::NotADirectory(path)) => {
             eprintln!("cpv: {}: Not a directory", path.display());
             process::exit(1);
-        },
+        }
         Err(CopyError::IsADirectory(path)) => {
-            eprintln!("cpv: {}: Is a directory (not copied, try using -r)", path.display());
+            eprintln!(
+                "cpv: {}: Is a directory (not copied, try using -r)",
+                path.display()
+            );
             process::exit(1);
-        },
+        }
         Err(CopyError::Io(err)) => {
             eprintln!("cpv: {}", err);
             process::exit(1);
-        },
+        }
         Err(err) => {
             eprintln!("cpv: {}", err);
             process::exit(1);

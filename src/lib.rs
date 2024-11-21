@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
-use std::fs::{self, File};
-use std::io::{self, Read, Write, BufReader, BufWriter};
-use thiserror::Error;
 use humansize::{format_size, BINARY};
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
-use walkdir::{WalkDir, Error as WalkdirError};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::fs::{self, File};
+use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+use walkdir::{Error as WalkdirError, WalkDir};
 
 const BUFFER_SIZE: usize = 8192;
 
@@ -128,10 +128,12 @@ pub fn copy_with_progress(
     let total_size = get_total_size(source)?;
     let multi = MultiProgress::new();
     let pb = multi.add(ProgressBar::new(total_size));
-    pb.set_style(ProgressStyle::default_bar()
-        .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-        .expect("Progress bar template error")
-        .progress_chars("#>-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .expect("Progress bar template error")
+            .progress_chars("#>-"),
+    );
 
     if source.is_file() {
         // Copying a single file
@@ -149,7 +151,8 @@ pub fn copy_with_progress(
         for entry in WalkDir::new(source) {
             let entry = entry?;
             let path = entry.path();
-            let relative = path.strip_prefix(source)
+            let relative = path
+                .strip_prefix(source)
                 .map_err(|e| CopyError::Other(e.into()))?;
             let target = target_base.join(relative);
 
