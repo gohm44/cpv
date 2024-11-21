@@ -1,10 +1,10 @@
-use std::path::{Path, PathBuf};
-use std::fs::{self, File};
-use std::io::{self, Read, Write, BufReader, BufWriter};
-use thiserror::Error;
 use humansize::{format_size, BINARY};
-use indicatif::{ProgressBar, ProgressStyle, MultiProgress};
-use walkdir::{WalkDir, Error as WalkdirError};
+use indicatif::{MultiProgress, ProgressBar, ProgressStyle};
+use std::fs::{self, File};
+use std::io::{self, BufReader, BufWriter, Read, Write};
+use std::path::{Path, PathBuf};
+use thiserror::Error;
+use walkdir::{Error as WalkdirError, WalkDir};
 
 const BUFFER_SIZE: usize = 8192;
 
@@ -29,7 +29,7 @@ pub struct CopyOptions {
     pub recursive: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CopyStats {
     pub bytes_copied: u64,
     pub files_copied: usize,
@@ -39,12 +39,7 @@ pub struct CopyStats {
 
 impl CopyStats {
     pub fn new() -> Self {
-        CopyStats {
-            bytes_copied: 0,
-            files_copied: 0,
-            dirs_created: 0,
-            time_taken: std::time::Duration::new(0, 0),
-        }
+        Self::default()
     }
 
     pub fn format_summary(&self) -> String {
@@ -133,10 +128,12 @@ pub fn copy_with_progress(
     let total_size = get_total_size(source)?;
     let multi = MultiProgress::new();
     let pb = multi.add(ProgressBar::new(total_size));
-    pb.set_style(ProgressStyle::default_bar()
-        .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
-        .expect("Progress bar template error")
-        .progress_chars("#>-"));
+    pb.set_style(
+        ProgressStyle::default_bar()
+            .template("[{elapsed_precise}] [{bar:40.cyan/blue}] {bytes}/{total_bytes} ({eta})")
+            .expect("Progress bar template error")
+            .progress_chars("#>-"),
+    );
 
     if source.is_file() {
         // Copying a single file
@@ -154,7 +151,8 @@ pub fn copy_with_progress(
         for entry in WalkDir::new(source) {
             let entry = entry?;
             let path = entry.path();
-            let relative = path.strip_prefix(source)
+            let relative = path
+                .strip_prefix(source)
                 .map_err(|e| CopyError::Other(e.into()))?;
             let target = target_base.join(relative);
 
@@ -175,4 +173,118 @@ pub fn copy_with_progress(
     pb.finish_with_message("Copy completed!");
 
     Ok(stats)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+    use std::io::Write;
+    #[cfg(unix)]
+    use std::os::unix::fs::PermissionsExt;
+    use tempfile::TempDir;
+
+    fn create_test_file(dir: &TempDir, name: &str, content: &[u8]) -> PathBuf {
+        let file_path = dir.path().join(name);
+        let mut file = File::create(&file_path).unwrap();
+        file.write_all(content).unwrap();
+        file_path
+    }
+
+    fn create_test_dir(dir: &TempDir, name: &str) -> PathBuf {
+        let dir_path = dir.path().join(name);
+        fs::create_dir(&dir_path).unwrap();
+        dir_path
+    }
+
+    #[test]
+    fn test_single_file_copy() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_file(&temp, "source.txt", b"test content");
+        let dest = temp.path().join("dest.txt");
+
+        let options = CopyOptions {
+            preserve_attrs: false,
+            force: false,
+            verbose: false,
+            recursive: false,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(result.is_ok());
+
+        let stats = result.unwrap();
+        assert_eq!(stats.files_copied, 1);
+        assert_eq!(stats.bytes_copied, 12); // length of "test content"
+        assert_eq!(fs::read_to_string(&dest).unwrap(), "test content");
+    }
+
+    #[test]
+    fn test_directory_without_recursive() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_dir(&temp, "source_dir");
+        let dest = temp.path().join("dest_dir");
+
+        let options = CopyOptions {
+            preserve_attrs: false,
+            force: false,
+            verbose: false,
+            recursive: false,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(matches!(result, Err(CopyError::IsADirectory(_))));
+    }
+
+    #[test]
+    fn test_directory_recursive() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_dir(&temp, "source_dir");
+        create_test_file(&temp, "source_dir/file1.txt", b"content1");
+        create_test_file(&temp, "source_dir/file2.txt", b"content2");
+        let dest = temp.path().join("dest_dir");
+
+        let options = CopyOptions {
+            preserve_attrs: false,
+            force: false,
+            verbose: false,
+            recursive: true,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(result.is_ok());
+
+        let stats = result.unwrap();
+        assert_eq!(stats.files_copied, 2);
+        assert_eq!(stats.bytes_copied, 16); // total length of contents
+        assert!(dest.exists());
+        assert!(dest.join("file1.txt").exists());
+        assert!(dest.join("file2.txt").exists());
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn test_preserve_attrs() {
+        let temp = TempDir::new().unwrap();
+        let source = create_test_file(&temp, "source.txt", b"test");
+        let dest = temp.path().join("dest.txt");
+
+        // Set some permissions on source (Unix-specific)
+        let source_perms = fs::Permissions::from_mode(0o644);
+        fs::set_permissions(&source, source_perms).unwrap();
+
+        let options = CopyOptions {
+            preserve_attrs: true,
+            force: false,
+            verbose: false,
+            recursive: false,
+        };
+
+        let result = copy_with_progress(&source, &dest, &options);
+        assert!(result.is_ok());
+
+        let source_metadata = fs::metadata(&source).unwrap();
+        let dest_metadata = fs::metadata(&dest).unwrap();
+        assert_eq!(source_metadata.permissions(), dest_metadata.permissions());
+    }
 }
