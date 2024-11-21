@@ -29,7 +29,7 @@ pub struct CopyOptions {
     pub recursive: bool,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Default)]
 pub struct CopyStats {
     pub bytes_copied: u64,
     pub files_copied: usize,
@@ -39,12 +39,7 @@ pub struct CopyStats {
 
 impl CopyStats {
     pub fn new() -> Self {
-        CopyStats {
-            bytes_copied: 0,
-            files_copied: 0,
-            dirs_created: 0,
-            time_taken: std::time::Duration::new(0, 0),
-        }
+        Self::default()
     }
 
     pub fn format_summary(&self) -> String {
