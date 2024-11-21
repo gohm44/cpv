@@ -15,6 +15,37 @@ A modern file copy utility written in Rust that provides visual feedback during 
 
 ## Installation
 
+### NixOS
+
+Several installation methods are available:
+
+1. Using Flakes (recommended):
+```bash
+# Install directly
+nix profile install github:gohm44/cpv
+
+# Or try without installing
+nix run github:gohm44/cpv
+```
+
+2. Through NixOS configuration:
+```nix
+# In configuration.nix
+{
+  inputs.cpv.url = "github:gohm44/cpv";
+  
+  environment.systemPackages = [ inputs.cpv.packages.${system}.default ];
+}
+```
+
+3. Using home-manager:
+```nix
+# In home.nix
+{
+  home.packages = [ inputs.cpv.packages.${pkgs.system}.default ];
+}
+```
+
 ### From source
 
 ```bash
